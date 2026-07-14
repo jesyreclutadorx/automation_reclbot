@@ -60,8 +60,36 @@ app.post('/iniciar_despliegue', async (req, res) => {
         const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf8'));
         await page.setCookie(...cookies);
 
-        // Ir al grupo de Facebook de destino
-        await page.goto(registro.plataforma); // Asume que el campo 'plataforma' contiene la URL del grupo de FB
+       // 5. Entrar al grupo de Facebook de destino
+await page.goto(registro.plataforma); 
+await page.waitForNetworkIdle();
+
+try {
+    // 6. Buscar el botón de "Interactuar como" (suele tener una imagen pequeña de tu perfil)
+    // Usamos selectores basados en accesibilidad (aria-label) que son más estables en Facebook
+    const selectorSelector = '[aria-label*="Interactuar como"], [aria-label*="Interact as"]';
+    await page.waitForSelector(selectorSelector, { timeout: 5000 });
+    await page.click(selectorSelector);
+
+    // 7. Esperar a que se abra la ventanita con la lista de tus páginas
+    await page.waitForTimeout(2000);
+
+    // 8. Hacer clic específicamente en la página que indica la base de datos (NAG_COLA_IMPRESION.cuenta_emisora)
+    // El robot buscará el texto exacto, por ejemplo: "Page_FB_01_Añejada"
+    const targetPageText = registro.cuenta_emisora;
+    const [pageOption] = await page.$x(`//span[contains(text(), "${targetPageText}")]`);
+    
+    if (pageOption) {
+        await pageOption.click();
+        console.log(`Identidad cambiada con éxito a: ${targetPageText}`);
+        // Esperar 3 segundos para que Facebook procese el cambio de perfil dentro del grupo
+        await page.waitForTimeout(3000); 
+    } else {
+        console.log(`No se encontró la página ${targetPageText} en la lista. Publicando con perfil personal.`);
+    }
+} catch (e) {
+    console.log("No se requirió cambio de identidad o el botón no está disponible. Procediendo directo.");
+}
 
         // Simular escritura humana de Spintax
         await page.waitForSelector('text=Escribe algo...');
@@ -76,7 +104,7 @@ app.post('/iniciar_despliegue', async (req, res) => {
         await page.waitForNavigation();
         await browser.close();
 
-        // 5. Actualizar estatus en Supabase a PUBLICADO
+        // 9. Actualizar estatus en Supabase a PUBLICADO
         await fetch(`${process.env.SUPABASE_URL}/rest/v1/NAG_COLA_IMPRESION?id=eq.${id_impresion}`, {
             method: 'PATCH',
             headers: {

@@ -78,7 +78,7 @@ app.post('/iniciar_despliegue', async (req, res) => {
         await page.goto(registro.plataforma); 
         await page.waitForNetworkIdle();
 
-        // 5. Cambio de Identidad a la Página Emisora
+        // 5. Cambio de Identidad a la Página Emisora (Usa selectores estructurales ARIA)
         try {
             const selectorSelector = '[aria-label*="Interactuar como"], [aria-label*="Interact as"]';
             await page.waitForSelector(selectorSelector, { timeout: 5000 });
@@ -93,8 +93,79 @@ app.post('/iniciar_despliegue', async (req, res) => {
                 await page.waitForTimeout(3000); 
             }
         } catch (e) {
-            console.log("No se requirió cambio de identidad o selector no disponible.");
+            console.log("No se requirió cambio de identidad o el selector no estuvo disponible.");
         }
 
-        // 6. Selección de Caja de Texto Mediante Atributos de Accesibilidad (Anti-cambios del DOM)
-        // Apuntamos al elemento interactivo del ed
+        // 6. EVASIÓN DEL DOM DINÁMICO: Enfoque y Apertura de Ventana de Creación (Composer)
+        // El contenedor del feed del grupo siempre está bajo el rol 'main'. El botón para abrir el creador tiene rol 'button'.
+        const postTriggerSelector = 'div[role="main"] div[role="button"]';
+        await page.waitForSelector(postTriggerSelector, { timeout: 15000 });
+        await page.focus(postTriggerSelector);
+        
+        // Presionamos Enter nativo en el elemento enfocado por teclado para abrir el modal
+        await page.keyboard.press('Enter');
+
+        // 7. Navegación por Foco de Teclado WCAG dentro de la Ventana Modal
+        // Por leyes de accesibilidad, al abrirse la publicación se levanta un contenedor con el rol 'dialog'
+        const dialogSelector = 'div[role="dialog"]';
+        await page.waitForSelector(dialogSelector, { timeout: 10000 });
+        
+        // Presionamos 'Tab' para forzar que el cursor del navegador se posicione dentro del Rich Text Editor (caja de texto)
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(1000);
+
+        // Escribimos el Spintax directamente sobre el foco activo de teclado (sin buscar selectores de la caja de texto)
+        await page.keyboard.type(registro.copy_spintax, { delay: 100 });
+        await page.waitForTimeout(2000);
+
+        // 8. Cargar el Multimedia Sanitizado
+        // El campo de carga de archivos (input type=file) es nativo de HTML y se encuentra siempre dentro del diálogo modal
+        const fileInputSelector = 'div[role="dialog"] input[type="file"]';
+        await page.waitForSelector(fileInputSelector, { timeout: 5000 });
+        const inputUpload = await page.$(fileInputSelector);
+        await inputUpload.uploadFile(mediaPath);
+
+        // Dar un tiempo prudente para el procesamiento local de la carga del archivo (video o imagen)
+        await page.waitForTimeout(6000);
+
+        // 9. Re-enfocar el editor y Publicar mediante Atajo de Teclado Universal
+        // Hacemos un clic directo en la caja de texto rica (textbox) de la modal para asegurar el foco de teclado
+        const textboxSelector = 'div[role="dialog"] [role="textbox"]';
+        await page.waitForSelector(textboxSelector, { timeout: 5000 });
+        await page.click(textboxSelector);
+        await page.waitForTimeout(1000);
+
+        // Enviamos la publicación mediante 'Ctrl + Enter' (atajo de accesibilidad nativo del framework Lexical/Draft.js de Meta)
+        // Esto elimina por completo la necesidad de buscar y hacer clic en el botón físico de "Publicar"
+        await page.keyboard.down('Control');
+        await page.keyboard.press('Enter');
+        await page.keyboard.up('Control');
+
+        // Esperar a que la página procese y guarde el envío en red antes de cerrar el navegador
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
+            console.log("Navegación tras publicación excedió tiempo límite, pero el comando fue enviado.");
+        });
+        
+        await browser.close();
+
+        // 10. Actualizar estatus en Supabase a PUBLICADO
+        await fetch(`${process.env.SUPABASE_URL}/rest/v1/NAG_COLA_IMPRESION?id=eq.${id_impresion}`, {
+            method: 'PATCH',
+            headers: {
+                "apikey": process.env.SUPABASE_KEY,
+                "Authorization": `Bearer ${process.env.SUPABASE_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ status_publicacion: 'PUBLICADO' })
+        });
+
+        fs.unlinkSync(mediaPath);
+
+    } catch (error) {
+        console.error("Fallo en despliegue:", error);
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`Servidor activo en puerto: ${PORT}`);
+});

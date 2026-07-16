@@ -1,3 +1,13 @@
+// 1. Extraemos la contraseña que Make.com nos envió
+const authKeyRecibida = req.body.auth_key; 
+
+// 2. Verificamos si es la correcta
+if (authKeyRecibida !== "Sonrics.666") {
+    console.log("Intento de ataque bloqueado. Contraseña incorrecta.");
+    return res.status(401).send("Acceso denegado"); // Matamos el proceso inmediatamente
+}
+
+// Si la contraseña es correcta, el código sigue hacia abajo y ya puede abrir Puppeteer.
 const express = require('express');
 const { exiftool } = require('exiftool-vendored');
 const puppeteer = require('puppeteer-extra');
